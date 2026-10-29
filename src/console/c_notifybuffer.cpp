@@ -105,13 +105,14 @@ void FNotifyBuffer::AddString(int printlevel, FString source)
 		}
 	}
 
-	int width = DisplayWidth / active_con_scaletext(twod, generic_ui);
+	int width = FHUDLetterbox::GetWidth(DisplayWidth, DisplayHeight) / active_con_scaletext(twod, generic_ui);
 	FFont *font = generic_ui ? NewSmallFont : AlternativeSmallFont;
 	FNotifyBufferBase::AddString(printlevel & PRINT_TYPES, font, source, width, con_notifytime, con_notifylines);
 }
 
 void FNotifyBuffer::Draw()
 {
+	FHUDLetterbox letterbox;
 	bool center = (con_centernotify != 0.f);
 	int line, lineadv, color, j;
 	bool canskip;

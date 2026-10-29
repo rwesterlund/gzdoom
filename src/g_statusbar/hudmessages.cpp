@@ -313,6 +313,8 @@ void DHUDMessage::ResetText (const char *text)
 	}
 	else
 	{
+		// Wrap to the width the message will be drawn at.
+		FHUDLetterbox letterbox;
 		width = twod->GetWidth() / active_con_scaletext(twod);
 	}
 

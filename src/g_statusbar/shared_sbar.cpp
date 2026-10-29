@@ -1071,6 +1071,7 @@ void DBaseStatusBar::FlashCrosshair ()
 
 void DBaseStatusBar::DrawMessages (int layer, int bottom)
 {
+	FHUDLetterbox letterbox;
 	DHUDMessageBase *msg = Messages[layer];
 	int visibility = 0;
 
@@ -1126,24 +1127,37 @@ void DBaseStatusBar::CallDraw(EHudState state, double ticFrac)
 
 FHUDLetterbox *FHUDLetterbox::Active;
 
-FHUDLetterbox::FHUDLetterbox()
+FHUDLetterbox::FHUDLetterbox(bool enable)
 {
-	if (!hud_letterbox)
+	if (!enable)
 		return;
 
 	int width = twod->GetWidth();
-	double ratio = ActiveRatio(width, twod->GetHeight());
-	const double maxratio = 16. / 9.;
+	int boxwidth = GetWidth(width, twod->GetHeight());
 
-	if (ratio <= maxratio)
+	if (boxwidth == width)
 		return;
 
 	SavedWidth = width;
-	BoxWidth = int(width * maxratio / ratio + 0.5);
+	BoxWidth = boxwidth;
 	BoxLeft = (width - BoxWidth) / 2;
 	Previous = Active;
 	Active = this;
 	Apply();
+}
+
+int FHUDLetterbox::GetWidth(int width, int height)
+{
+	if (!hud_letterbox)
+		return width;
+
+	double ratio = ActiveRatio(width, height);
+	const double maxratio = 16. / 9.;
+
+	if (ratio <= maxratio)
+		return width;
+
+	return int(width * maxratio / ratio + 0.5);
 }
 
 FHUDLetterbox::~FHUDLetterbox()
@@ -1160,12 +1174,20 @@ void FHUDLetterbox::Apply()
 	SavedOffset = twod->SetOffset(DVector2(0, 0));
 	twod->SetOffset(SavedOffset + DVector2(BoxLeft, 0));
 	twod->SetSize(BoxWidth, twod->GetHeight());
+
+	// The clean scale factors are limited by the height on screens this wide, so only the widths change.
+	SavedCleanWidth = CleanWidth;
+	SavedCleanWidth_1 = CleanWidth_1;
+	CleanWidth = BoxWidth / CleanXfac;
+	CleanWidth_1 = BoxWidth / CleanXfac_1;
 }
 
 void FHUDLetterbox::Undo()
 {
 	twod->SetSize(SavedWidth, twod->GetHeight());
 	twod->SetOffset(SavedOffset);
+	CleanWidth = SavedCleanWidth;
+	CleanWidth_1 = SavedCleanWidth_1;
 }
 
 FHUDLetterbox::Lift::Lift()

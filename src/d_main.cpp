@@ -883,7 +883,11 @@ static void DrawRateStuff()
 static void DrawOverlays()
 {
 	C_DrawConsole ();
-	M_Drawer ();
+	{
+		// Conversations are part of the game, so they share the HUD letterbox; other menus don't.
+		FHUDLetterbox letterbox(menuactive != MENU_Off && CurrentMenu && CurrentMenu->IsKindOf("ConversationMenu"));
+		M_Drawer ();
+	}
 	DrawRateStuff();
 	if (!hud_toggled)
 		FStat::PrintStat (twod);

@@ -419,6 +419,8 @@ void P_StartConversation (AActor *npc, AActor *pc, bool facetalker, bool saveang
 		auto cmenu = mcls->CreateNew();
 		IFVIRTUALPTRNAME(cmenu, "ConversationMenu", Init)
 		{
+			// The layout must match the letterboxed area the menu gets drawn in.
+			FHUDLetterbox letterbox;
 			VMValue params[] = { cmenu, CurNode, pc->player, StaticLastReply };
 			VMReturn ret(&ConversationMenuY);
 			VMCall(func, params, countof(params), &ret, 1);
