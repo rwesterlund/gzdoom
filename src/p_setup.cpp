@@ -212,6 +212,10 @@ static void PrecacheLevel(FLevelLocals *Level)
 	{
 		AddToList(hitlist.Data(), Level->skytexture2, FTextureManager::HIT_Sky);
 	}
+	if (Level->skymisttexture.isValid())
+	{
+		AddToList(hitlist.Data(), Level->skymisttexture, FTextureManager::HIT_Sky);
+	}
 
 	static const BITFIELD checkForTextureFlags = FTextureManager::TEXMAN_Overridable | FTextureManager::TEXMAN_TryAny | FTextureManager::TEXMAN_ReturnFirst | FTextureManager::TEXMAN_DontCreate;
 
@@ -286,16 +290,17 @@ void FLevelLocals::ClearPortals()
 void FLevelLocals::ClearLevelData(bool fullgc)
 {
 	{
-		auto it = GetThinkerIterator<AActor>(NAME_None, STAT_TRAVELLING);
-		for (AActor *actor = it.Next(); actor != nullptr; actor = it.Next())
-		{
-			actor->BlockingLine = actor->MovementBlockingLine = nullptr;
-			actor->BlockingFloor = actor->BlockingCeiling = actor->Blocking3DFloor = nullptr;
-		}
+		// Make sure map data gets cleared appropriately so any leftover Objects aren't pointing
+		// towards anything invalid.
+		FName fieldTypes[] = { NAME_SectorPortal, NAME_LinePortal, NAME_Vertex, NAME_Side, NAME_Line, NAME_SecPlane, NAME_F3DFloor, NAME_Sector };
+		for (DObject* probe = GC::Root; probe != nullptr; probe = probe->ObjNext)
+			probe->ClearNativePointerFields({ fieldTypes, std::size(fieldTypes) });
 	}
 	
+	TravellingThinkers.Clear();
 	interpolator.ClearInterpolations();	// [RH] Nothing to interpolate on a fresh level.
 	Thinkers.DestroyAllThinkers(fullgc);
+	ClientSideThinkers.DestroyAllThinkers(fullgc);
 	ClearAllSubsectorLinks(); // can't be done as part of the polyobj deletion process.
 
 	total_monsters = total_items = total_secrets =
@@ -331,6 +336,7 @@ void FLevelLocals::ClearLevelData(bool fullgc)
 	if (SpotState) SpotState->Destroy();
 	SpotState = nullptr;
 	ACSThinker = nullptr;
+	ClientSideACSThinker = nullptr;
 	FraggleScriptThinker = nullptr;
 	CorpseQueue.Clear();
 	canvasTextureInfo.EmptyList();
@@ -380,6 +386,8 @@ void FLevelLocals::ClearLevelData(bool fullgc)
 	aabbTree = nullptr;
 	levelMesh = nullptr;
 	VisualThinkerHead = nullptr;
+	ActorBehaviors.Clear();
+	ClientSideActorBehaviors.Clear();
 	if (screen)
 		screen->SetAABBTree(nullptr);
 }
@@ -411,7 +419,7 @@ void P_FreeLevelData (bool fullgc)
 
 void P_SetupLevel(FLevelLocals *Level, int position, bool newGame)
 {
-	int i;
+	unsigned int i;
 
 	Level->ShaderStartTime = I_msTimeFS(); // indicate to the shader system that the level just started
 
@@ -643,6 +651,7 @@ void P_Shutdown ()
 	for (auto Level : AllLevels())
 	{
 		Level->Thinkers.DestroyThinkersInList(STAT_STATIC);
+		Level->ClientSideThinkers.DestroyThinkersInList(STAT_STATIC);
 	}
 	P_FreeLevelData ();
 	// [ZZ] delete global event handlers

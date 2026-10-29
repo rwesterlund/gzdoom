@@ -394,25 +394,17 @@ angle_t Clipper::PointToPseudoAngle(double x, double y)
 {
 	double vecx = x - viewpoint->Pos.X;
 	double vecy = y - viewpoint->Pos.Y;
-	if ((viewpoint->camera != NULL) && amRadar)
+	if (amRadar)
 	{
-		if (viewpoint->camera->tracer != NULL)
-		{
-			vecx = x - viewpoint->camera->tracer->X();
-			vecy = y - viewpoint->camera->tracer->Y();
-		}
-		else
-		{
-			vecx = x - viewpoint->camera->X();
-			vecy = y - viewpoint->camera->Y();
-		}
+		vecx = x - viewpoint->OffPos.X;
+		vecy = y - viewpoint->OffPos.Y;
 	}
 
 	if (vecx == 0 && vecy == 0)
 	{
 		return 0;
 	}
-	else if (!amRadar && viewpoint->IsOrtho())
+	else if (!amRadar && viewpoint->bDoOrtho)
 	{
 		return PointToPseudoOrthoAngle(x, y);
 	}
@@ -439,7 +431,7 @@ angle_t Clipper::PointToPseudoPitch(double x, double y, double z)
 	{
 		return 0;
 	}
-	else if (viewpoint->IsOrtho())
+	else if (viewpoint->bDoOrtho)
 	{
 		return PointToPseudoOrthoPitch(x, y, z);
 	}
@@ -467,7 +459,7 @@ angle_t Clipper::PointToPseudoPitch(double x, double y, double z)
 
 angle_t Clipper::PointToPseudoOrthoAngle(double x, double y)
 {
-	DVector3 disp = DVector3( x, y, 0 ) - viewpoint->camera->Pos();
+	DVector3 disp = DVector3(x, y, 0) - viewpoint->OffPos;
 	if (viewpoint->camera->ViewPos->Offset.XY().Length() == 0)
 	{
 		return AngleToPseudo( viewpoint->Angles.Yaw.BAMs() );
@@ -491,7 +483,7 @@ angle_t Clipper::PointToPseudoOrthoAngle(double x, double y)
 
 angle_t Clipper::PointToPseudoOrthoPitch(double x, double y, double z)
 {
-	DVector3 disp = DVector3( x, y, z ) - viewpoint->camera->Pos();
+	DVector3 disp = DVector3(x, y, z) - viewpoint->OffPos;
 	if (viewpoint->camera->ViewPos->Offset.XY().Length() > 0)
 	{
 		double yproj = viewpoint->PitchSin * disp.XY().Length() * deltaangle(disp.Angle(), viewpoint->Angles.Yaw).Cos();
@@ -553,7 +545,7 @@ bool Clipper::CheckBox(const float *bspcoord)
 	angle1 = PointToPseudoAngle (bspcoord[check[0]], bspcoord[check[1]]);
 	angle2 = PointToPseudoAngle (bspcoord[check[2]], bspcoord[check[3]]);
 
-	if (vp->IsOrtho())
+	if (vp->bDoOrtho)
 	{
 	  if (angle2 != angle1) return true;
 	  switch (boxpos) // Check if the closer corner is poking into the view area
@@ -578,7 +570,7 @@ bool Clipper::CheckBoxOrthoPitch(const float *bspcoord)
 {
 	angle_t pitchmin, pitchmax;
 	auto &vp = viewpoint;
-	if (!vp->IsOrtho()) return true;
+	if (!vp->bDoOrtho) return true;
 
 	angle_t pitchtemp;
 	double padding = 1.0/viewpoint->ScreenProj/viewpoint->PitchCos;

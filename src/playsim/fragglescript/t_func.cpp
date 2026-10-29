@@ -263,7 +263,7 @@ PClassActor * FParser::T_GetMobjType(svalue_t arg)
 //==========================================================================
 int FParser::T_GetPlayerNum(const svalue_t &arg)
 {
-	int playernum;
+	unsigned int playernum;
 	if(arg.type == svt_mobj)
 	{
 		if(!actorvalue(arg) || !arg.value.mobj->player)
@@ -2532,8 +2532,10 @@ void FParser::SF_PlayerWeapon()
 						
 						IFVM(PlayerPawn, PickNewWeapon)
 						{
+							AActor* weap = nullptr;
 							VMValue param[] = { Level->Players[playernum]->mo, (void*)nullptr };
-							VMCall(func, param, 2, nullptr, 0);
+							VMReturn rets[] = { (void**)&weap };
+							VMCall(func, param, 2, rets, 1);
 						}
 					}
 				}

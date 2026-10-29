@@ -83,15 +83,31 @@ void SetSplitPlanes(FRenderState& state, const secplane_t& top, const secplane_t
 
 void HWWall::RenderWall(FRenderState &state, int textured)
 {
-	if (seg->sidedef->Flags & WALLF_DITHERTRANS) state.SetEffect(EFF_DITHERTRANS);
+	bool ditherT = (type == RENDERWALL_BOTTOM) && (seg->sidedef->Flags & WALLF_DITHERTRANS_BOTTOM);
+	ditherT |= (type == RENDERWALL_TOP) && (seg->sidedef->Flags & WALLF_DITHERTRANS_TOP);
+	ditherT = ditherT || (seg->sidedef->Flags & WALLF_DITHERTRANS_MID);
+	if (ditherT)
+	{
+		state.SetEffect(EFF_DITHERTRANS);
+	}
 	assert(vertcount > 0);
 	state.SetLightIndex(dynlightindex);
 	state.Draw(DT_TriangleFan, vertindex, vertcount);
 	vertexcount += vertcount;
-	if (seg->sidedef->Flags & WALLF_DITHERTRANS)
+	if (ditherT)
 	{
 		state.SetEffect(EFF_NONE);
-		seg->sidedef->Flags &= ~WALLF_DITHERTRANS; // reset this every frame
+		switch(type) // reset this every frame
+		{
+		case RENDERWALL_TOP:
+			seg->sidedef->Flags &= ~WALLF_DITHERTRANS_TOP;
+			break;
+		case RENDERWALL_BOTTOM:
+			seg->sidedef->Flags &= ~WALLF_DITHERTRANS_BOTTOM;
+			break;
+		default:
+			if (seg->sidedef->dithertranscount-- <= 0) seg->sidedef->Flags &= ~WALLF_DITHERTRANS_MID;
+		}
 	}
 }
 
@@ -408,76 +424,134 @@ void HWWall::SetupLights(HWDrawInfo*di, FDynLightData &lightdata)
 	auto normal = glseg.Normal();
 	p.Set(normal, -normal.X * glseg.x1 - normal.Z * glseg.y1);
 
-	FLightNode *node;
-	if (seg->sidedef == NULL)
-	{
-		node = NULL;
-	}
-	else if (!(seg->sidedef->Flags & WALLF_POLYOBJ))
-	{
-		node = seg->sidedef->lighthead;
-	}
-	else if (sub)
+	if ((seg->sidedef->Flags & WALLF_POLYOBJ) && sub)
 	{
 		// Polobject segs cannot be checked per sidedef so use the subsector instead.
-		node = sub->section->lighthead;
-	}
-	else node = NULL;
-
-	// Iterate through all dynamic lights which touch this wall and render them
-	while (node)
-	{
-		if (node->lightsource->IsActive() && !node->lightsource->DontLightMap())
+		if (di->Level->lightlists.flat_dlist.SSize() > sub->section->Index())
 		{
-			iter_dlight++;
-
-			DVector3 posrel = node->lightsource->PosRelative(seg->frontsector->PortalGroup);
-			float x = posrel.X;
-			float y = posrel.Y;
-			float z = posrel.Z;
-			float dist = fabsf(p.DistToPoint(x, z, y));
-			float radius = node->lightsource->GetRadius();
-			float scale = 1.0f / ((2.f * radius) - dist);
-			FVector3 fn, pos;
-
-			if (radius > 0.f && dist < radius)
+			TMap<FDynamicLight *, std::unique_ptr<FLightNode>>::Iterator it(di->Level->lightlists.flat_dlist[sub->section->Index()]);
+			TMap<FDynamicLight *, std::unique_ptr<FLightNode>>::Pair *pair;
+			while (it.NextPair(pair))
 			{
-				FVector3 nearPt, up, right;
+				auto node = pair->Value.get();
+				if (!node) continue;
 
-				pos = { x, z, y };
-				fn = p.Normal();
-
-				fn.GetRightUp(right, up);
-
-				FVector3 tmpVec = fn * dist;
-				nearPt = pos + tmpVec;
-
-				FVector3 t1;
-				int outcnt[4]={0,0,0,0};
-				texcoord tcs[4];
-
-				// do a quick check whether the light touches this polygon
-				for(int i=0;i<4;i++)
+				if (node->lightsource->IsActive() && !node->lightsource->DontLightMap())
 				{
-					t1 = FVector3(&vtx[i*3]);
-					FVector3 nearToVert = t1 - nearPt;
-					tcs[i].u = ((nearToVert | right) * scale) + 0.5f;
-					tcs[i].v = ((nearToVert | up) * scale) + 0.5f;
+					iter_dlight++;
 
-					if (tcs[i].u<0) outcnt[0]++;
-					if (tcs[i].u>1) outcnt[1]++;
-					if (tcs[i].v<0) outcnt[2]++;
-					if (tcs[i].v>1) outcnt[3]++;
+					DVector3 posrel = node->lightsource->PosRelative(seg->frontsector->PortalGroup);
+					float x = posrel.X;
+					float y = posrel.Y;
+					float z = posrel.Z;
+					float dist = fabsf(p.DistToPoint(x, z, y));
+					float radius = node->lightsource->GetRadius();
+					float scale = 1.0f / ((2.f * radius) - dist);
+					FVector3 fn, pos;
 
-				}
-				if (outcnt[0]!=4 && outcnt[1]!=4 && outcnt[2]!=4 && outcnt[3]!=4) 
-				{
-					draw_dlight += GetLight(lightdata, seg->frontsector->PortalGroup, p, node->lightsource, true);
+					if (radius > 0.f && dist < radius)
+					{
+						FVector3 nearPt, up, right;
+
+						pos = { x, z, y };
+						fn = p.Normal();
+
+						fn.GetRightUp(right, up);
+
+						FVector3 tmpVec = fn * dist;
+						nearPt = pos + tmpVec;
+
+						FVector3 t1;
+						int outcnt[4]={0,0,0,0};
+						texcoord tcs[4];
+
+						// do a quick check whether the light touches this polygon
+						for(int i=0;i<4;i++)
+						{
+							t1 = FVector3(&vtx[i*3]);
+							FVector3 nearToVert = t1 - nearPt;
+							tcs[i].u = ((nearToVert | right) * scale) + 0.5f;
+							tcs[i].v = ((nearToVert | up) * scale) + 0.5f;
+
+							if (tcs[i].u<0) outcnt[0]++;
+							if (tcs[i].u>1) outcnt[1]++;
+							if (tcs[i].v<0) outcnt[2]++;
+							if (tcs[i].v>1) outcnt[3]++;
+
+						}
+						if (outcnt[0]!=4 && outcnt[1]!=4 && outcnt[2]!=4 && outcnt[3]!=4) 
+						{
+							draw_dlight += GetLight(lightdata, seg->frontsector->PortalGroup, p, node->lightsource, true);
+						}
+					}
 				}
 			}
 		}
-		node = node->nextLight;
 	}
+	else
+	{
+		if (di->Level->lightlists.wall_dlist.SSize() > seg->sidedef->Index())
+		{
+			TMap<FDynamicLight *, std::unique_ptr<FLightNode>>::Iterator it(di->Level->lightlists.wall_dlist[seg->sidedef->Index()]);
+			TMap<FDynamicLight *, std::unique_ptr<FLightNode>>::Pair *pair;
+			while (it.NextPair(pair))
+			{
+				auto node = pair->Value.get();
+				if (!node) continue;
+
+				if (node->lightsource->IsActive() && !node->lightsource->DontLightMap())
+				{
+					iter_dlight++;
+
+					DVector3 posrel = node->lightsource->PosRelative(seg->frontsector->PortalGroup);
+					float x = posrel.X;
+					float y = posrel.Y;
+					float z = posrel.Z;
+					float dist = fabsf(p.DistToPoint(x, z, y));
+					float radius = node->lightsource->GetRadius();
+					float scale = 1.0f / ((2.f * radius) - dist);
+					FVector3 fn, pos;
+
+					if (radius > 0.f && dist < radius)
+					{
+						FVector3 nearPt, up, right;
+
+						pos = { x, z, y };
+						fn = p.Normal();
+
+						fn.GetRightUp(right, up);
+
+						FVector3 tmpVec = fn * dist;
+						nearPt = pos + tmpVec;
+
+						FVector3 t1;
+						int outcnt[4]={0,0,0,0};
+						texcoord tcs[4];
+
+						// do a quick check whether the light touches this polygon
+						for(int i=0;i<4;i++)
+						{
+							t1 = FVector3(&vtx[i*3]);
+							FVector3 nearToVert = t1 - nearPt;
+							tcs[i].u = ((nearToVert | right) * scale) + 0.5f;
+							tcs[i].v = ((nearToVert | up) * scale) + 0.5f;
+
+							if (tcs[i].u<0) outcnt[0]++;
+							if (tcs[i].u>1) outcnt[1]++;
+							if (tcs[i].v<0) outcnt[2]++;
+							if (tcs[i].v>1) outcnt[3]++;
+
+						}
+						if (outcnt[0]!=4 && outcnt[1]!=4 && outcnt[2]!=4 && outcnt[3]!=4) 
+						{
+							draw_dlight += GetLight(lightdata, seg->frontsector->PortalGroup, p, node->lightsource, true);
+						}
+					}
+				}
+			}
+		}
+	}
+
 	dynlightindex = screen->mLights->UploadLights(lightdata);
 }
 
@@ -628,7 +702,8 @@ void HWWall::PutPortal(HWWallDispatcher *di, int ptype, int plane)
 			break;
 
 		case PORTALTYPE_PLANEMIRROR:
-			if (portalState.PlaneMirrorMode * planemirror->fC() <= 0)
+			if (ddi->Viewpoint.bDoOrtho ? (ddi->Viewpoint.ViewVector3D.dot(planemirror->Normal()) < 0)
+				: (portalState.PlaneMirrorMode * planemirror->fC() <= 0))
 			{
 				planemirror = portalState.UniquePlaneMirrors.Get(planemirror);
 				portal = ddi->FindPortal(planemirror);
@@ -2181,8 +2256,6 @@ void HWWall::Process(HWWallDispatcher *di, seg_t *seg, sector_t * frontsector, s
 	}
 
 	bool isportal = seg->linedef->isVisualPortal() && seg->sidedef == seg->linedef->sidedef[0];
-	// Don't render portal insides if in orthographic mode
-	if (di->di) isportal &= !(di->di->Viewpoint.IsOrtho());
 
 	//return;
 	// [GZ] 3D middle textures are necessarily two-sided, even if they lack the explicit two-sided flag

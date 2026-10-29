@@ -508,6 +508,10 @@ enum ActorRenderFlag2
 	RF2_ISOMETRICSPRITES		= 0x0080,
 	RF2_SQUAREPIXELS			= 0x0100,	// apply +ROLLSPRITE scaling math so that non rolling sprites get the same scaling
 	RF2_STRETCHPIXELS			= 0x0200,	// don't apply SQUAREPIXELS for ROLLSPRITES
+	RF2_LIGHTMULTALPHA			= 0x0400,	// attached lights use alpha as intensity multiplier
+	RF2_ANGLEDROLL				= 0x0800,	// Sprite roll amount depends on (actor.Angle - actor.AngledRollOffset)
+	RF2_INTERPOLATESCALE		= 0x1000,
+	RF2_INTERPOLATEALPHA		= 0x2000,
 };
 
 // This translucency value produces the closest match to Heretic's TINTTAB.
@@ -724,25 +728,37 @@ struct AnimModelOverride
 
 enum EModelDataFlags
 {
-	MODELDATA_HADMODEL =		1 << 0,
-	MODELDATA_OVERRIDE_FLAGS =	1 << 1,
+	MODELDATA_HADMODEL =				1 << 0,
+	MODELDATA_OVERRIDE_FLAGS =			1 << 1,
+	MODELDATA_GET_BONE_INFO  =			1 << 2,
+	MODELDATA_GET_BONE_INFO_RECALC  =	1 << 3, // RECALCULATE BONE INFO INSTANTLY WHEN STATE/ANIMATION CHANGES, MIGHT GET EXPENSIVE
+
+
+
+
+
+
+
+
+	MODELDATA_IQMFLAGS = MODELDATA_GET_BONE_INFO | MODELDATA_GET_BONE_INFO_RECALC,
 };
 
 class DActorModelData : public DObject
 {
 	DECLARE_CLASS(DActorModelData, DObject);
 public:
-	PClass *					modelDef;
-	TArray<ModelOverride>		models;
-	TArray<FTextureID>			skinIDs;
-	TArray<AnimModelOverride>	animationIDs;
-	TArray<int>					modelFrameGenerators;
-	int							flags;
-	int							overrideFlagsSet;
-	int							overrideFlagsClear;
+	PClass *					 modelDef;
+	TArray<ModelOverride>		 models;
+	TArray<FTextureID>			 skinIDs;
+	TArray<AnimModelOverride>	 animationIDs;
+	TArray<int>					 modelFrameGenerators;
+	TArray<TArray<BoneOverride>> modelBoneOverrides;
+	TArray<BoneInfo>			 modelBoneInfo;
+	int							 flags;
+	int							 overrideFlagsSet;
+	int							 overrideFlagsClear;
 
-	ModelAnim curAnim;
-	ModelAnimFrame prevAnim; // used for interpolation when switching anims
+	AnimInfo anims;
 
 	DActorModelData() = default;
 	virtual void Serialize(FSerializer& arc) override;
@@ -778,6 +794,18 @@ public:
 	void Serialize(FSerializer& arc) override;
 };
 
+class DBehavior final : public DObject
+{
+	DECLARE_CLASS(DBehavior, DObject)
+	HAS_OBJECT_POINTERS
+public:
+	TObjPtr<AActor*> Owner;
+	FLevelLocals* Level;
+
+	void Serialize(FSerializer& arc) override;
+	void OnDestroy() override;
+};
+
 const double MinVel = EQUAL_EPSILON;
 
 // Map Object definition.
@@ -793,10 +821,21 @@ public:
 
 	virtual void OnDestroy() override;
 	virtual void Serialize(FSerializer &arc) override;
+	virtual size_t PropagateMark() override;
 	virtual void PostSerialize() override;
 	virtual void PostBeginPlay() override;		// Called immediately before the actor's first tick
 	virtual void Tick() override;
 	void EnableNetworking(const bool enable) override;
+
+	void CalcBones(bool recalc);
+	TRS GetBoneTRS(int model_index, int bone_index, bool with_override);
+
+	//outmat must be double[16]
+	void GetBoneMatrix(int model_index, int bone_index, bool with_override, double *outMat);
+
+	DVector3 GetBoneEulerAngles(int model_index, int bone_index, bool with_override);
+	void GetBonePosition(int model_index, int bone_index, bool with_override, DVector3 &pos, DVector3 &fwd, DVector3 &up);
+	void GetObjectToWorldMatrix(double *outMat);
 
 	static AActor *StaticSpawn (FLevelLocals *Level, PClassActor *type, const DVector3 &pos, replace_t allowreplacement, bool SpawningMapThing = false);
 
@@ -891,7 +930,7 @@ public:
 	// Called when bouncing to allow for custom behavior.
 	// Returns -1 for normal behavior, 0 to stop, and 1 to keep going.
 	// (virtual on the script side only)
-	int SpecialBounceHit(AActor* bounceMobj, line_t* bounceLine, secplane_t* bouncePlane);
+	int SpecialBounceHit(AActor* bounceMobj, line_t* bounceLine, secplane_t* bouncePlane, bool is3DFloor);
 
 	// Returns true if it's okay to switch target to "other" after being attacked by it.
 	bool CallOkayToSwitchTarget(AActor *other);
@@ -1110,6 +1149,7 @@ public:
 
 	DAngle			SpriteAngle;
 	DAngle			SpriteRotation;
+	DAngle			AngledRollOffset;	// Offset for angle-dependent sprite rolling (see RF2_ANGLEDROLL)
 	DVector2		AutomapOffsets;		// Offset the actors' sprite view on the automap by these coordinates.
 	float			isoscaleY;				// Y-scale to compensate for Y-billboarding for isometric sprites
 	float			isotheta;				// Rotation angle to compensate for Y-billboarding for isometric sprites
@@ -1272,7 +1312,7 @@ public:
 	int				DesignatedTeam;	// Allow for friendly fire cacluations to be done on non-players.
 	int				friendlyseeblocks;	// allow to override friendly search distance calculation
 
-	AActor			*BlockingMobj;	// Actor that blocked the last move
+	TObjPtr<AActor*> BlockingMobj;	// Actor that blocked the last move
 	line_t			*BlockingLine;	// Line that blocked the last move
 	line_t			*MovementBlockingLine; // Line that stopped the Actor's movement in P_XYMovement
 	sector_t		*Blocking3DFloor;	// 3D floor that blocked the last move (if any)
@@ -1357,6 +1397,8 @@ public:
 	// [RH] Used to interpolate the view to get >35 FPS
 	DVector3 Prev;
 	DRotator PrevAngles;
+	DVector2 PrevScale;
+	double PrevAlpha;
 	DAngle   PrevFOV;
 	TArray<FDynamicLight *> AttachedLights;
 	TDeletingArray<FLightDefaults *> UserLights;
@@ -1373,6 +1415,7 @@ public:
 	// landing speed from a jump with normal gravity (squats the player's view)
 	// (note: this is put into AActor instead of the PlayerPawn because non-players also use the value)
 	double LandingSpeed;
+	TMap<FName, TObjPtr<DBehavior*>> Behaviors;
 
 
 	// ThingIDs
@@ -1434,6 +1477,24 @@ public:
 		return GetClass()->FindState(numnames, names, exact);
 	}
 
+	DBehavior* FindBehavior(FName type) const
+	{
+		auto b = Behaviors.CheckKey(type);
+		return b != nullptr ? b->Get() : nullptr;
+	}
+	bool IsValidBehavior(const DBehavior& b) const
+	{
+		return !(b.ObjectFlags & OF_EuthanizeMe) && b.Owner.ForceGet() == this;
+	}
+	DBehavior* AddBehavior(PClass& type);
+	bool RemoveBehavior(FName type);
+	void TickBehaviors();
+	void MoveBehaviors(AActor& from);
+	void ClearBehaviors(PClass* type = nullptr);
+	// Internal only, mostly for traveling.
+	void UnlinkBehaviorsFromLevel();
+	void LinkBehaviorsToLevel();
+
 	bool HasSpecialDeathStates () const;
 
 	double X() const
@@ -1486,7 +1547,7 @@ public:
 	DVector3 InterpolatedPosition(double ticFrac) const
 	{
 		if (renderflags & RF_DONTINTERPOLATE) return Pos();
-		else return Prev + (ticFrac * (Pos() - Prev));
+		else return Prev * (1.0 - ticFrac) + Pos() * ticFrac;
 	}
 	DRotator InterpolatedAngles(double ticFrac) const
 	{
@@ -1495,6 +1556,14 @@ public:
 		result.Pitch = PrevAngles.Pitch + deltaangle(PrevAngles.Pitch, Angles.Pitch) * ticFrac;
 		result.Roll = PrevAngles.Roll + deltaangle(PrevAngles.Roll, Angles.Roll) * ticFrac;
 		return result;
+	}
+	DVector2 InterpolatedScale(double ticFrac) const
+	{
+		return (renderflags2 & RF2_INTERPOLATESCALE) ? PrevScale * (1.0 - ticFrac) + Scale * ticFrac : Scale;
+	}
+	double InterpolatedAlpha(double ticFrac) const
+	{
+		return (renderflags2 & RF2_INTERPOLATEALPHA) ? PrevAlpha * (1.0 - ticFrac) + Alpha * ticFrac : Alpha;
 	}
 	float GetSpriteOffset(bool y) const
 	{

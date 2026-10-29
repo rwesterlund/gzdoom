@@ -1,4 +1,38 @@
-
+/*
+** base.zs
+**
+**---------------------------------------------------------------------------
+**
+** Copyright 2016-2017 Christoph Oelckers
+** Copyright 2017-2025 GZDoom Maintainers and Contributors
+** All rights reserved.
+**
+** Redistribution and use in source and binary forms, with or without
+** modification, are permitted provided that the following conditions
+** are met:
+**
+** 1. Redistributions of source code must retain the above copyright
+**    notice, this list of conditions and the following disclaimer.
+** 2. Redistributions in binary form must reproduce the above copyright
+**    notice, this list of conditions and the following disclaimer in the
+**    documentation and/or other materials provided with the distribution.
+** 3. The name of the author may not be used to endorse or promote products
+**    derived from this software without specific prior written permission.
+**
+** THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+** IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+** OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+** IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+** INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+** NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+** THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+**
+**---------------------------------------------------------------------------
+**
+*/
 
 // constants for A_PlaySound
 enum ESoundFlags
@@ -11,7 +45,7 @@ enum ESoundFlags
 	CHAN_5 = 5,
 	CHAN_6 = 6,
 	CHAN_7 = 7,
-	
+
 	// modifier flags
 	CHAN_LISTENERZ = 8,
 	CHAN_MAYBE_LOCAL = 16,
@@ -35,7 +69,8 @@ enum ESoundFlags
 	CHANF_TRANSIENT = 32768,    // Do not record in savegames - used for sounds that get restarted outside the sound system (e.g. ambients in SW and Blood)
 	CHANF_FORCE = 65536,		// Start, even if sound is paused.
 	CHANF_SINGULAR = 0x20000,	// Only start if no sound of this name is already playing.
-
+	CHANF_RUMBLE = 0x40000,		// Hint to rumble trigger rumble from sound
+	CHANF_NORUMBLE = 0x80000,	// Disable rumble even if it would normally happen
 
 	CHANF_LOOPING = CHANF_LOOP | CHANF_NOSTOP, // convenience value for replicating the old 'looping' boolean.
 };
@@ -45,7 +80,6 @@ const ATTN_NONE = 0;
 const ATTN_NORM = 1;
 const ATTN_IDLE = 1.001;
 const ATTN_STATIC = 3;
-
 
 enum ERenderStyle
 {
@@ -70,7 +104,6 @@ enum ERenderStyle
 	STYLE_ColorAdd,			// Use color intensity as transparency factor and blend additively.
 
 };
-
 
 enum EGameState
 {
@@ -121,7 +154,6 @@ const TEXTCOLOR_BOLD			= "\034+";
 
 const TEXTCOLOR_CHAT			= "\034*";
 const TEXTCOLOR_TEAMCHAT		= "\034!";
-
 
 enum EMonospacing
 {
@@ -189,12 +221,13 @@ struct Vector3
 }
 */
 
-struct _ native	// These are the global variables, the struct is only here to avoid extending the parser for this.
+struct _ native unsafe(internal)	// These are the global variables, the struct is only here to avoid extending the parser for this.
 {
 	native readonly Array<class> AllClasses;
     native internal readonly Map<Name , Service> AllServices;
 	native readonly bool multiplayer;
 	native @KeyBindings Bindings;
+	native @KeyBindings DoubleBindings;
 	native @KeyBindings AutomapBindings;
 	native readonly @GameInfoStruct gameinfo;
 	native readonly ui bool netgame;
@@ -262,8 +295,7 @@ struct MusPlayingInfo native
 	native String name;
 	native int baseorder;
 	native bool loop;
-	native voidptr handle;
-	
+	native readonly voidptr handle;
 };
 
 struct TexMan
@@ -299,7 +331,7 @@ struct TexMan
 		ForceLookup = 128,
 		NoAlias = 256
 	};
-	
+
 	enum ETexReplaceFlags
 	{
 		NOT_BOTTOM			= 1,
@@ -373,7 +405,6 @@ enum EScaleMode
 	FSMode_ScaleToFit43Top = 5,
 	FSMode_ScaleToFit43Bottom = 6,
 	FSMode_ScaleToHeight = 7,
-
 
 	FSMode_Max,
 
@@ -578,6 +609,11 @@ struct Screen native
 	native static void ClearStencil();
 	native static void SetTransform(Shape2DTransform transform);
 	native static void ClearTransform();
+
+	native static double GetTextureWidth(TextureID texture, bool animated = false);
+	native static double GetTextureHeight(TextureID texture, bool animated = false);
+	native static double GetTextureLeftOffset(TextureID texture, bool animated = false);
+	native static double GetTextureTopOffset(TextureID texture, bool animated = false);
 }
 
 struct Font native
@@ -615,7 +651,7 @@ struct Font native
 		CR_TEAL,
 		NUM_TEXT_COLORS
 	};
-	
+
 	const TEXTCOLOR_BRICK			= "\034A";
 	const TEXTCOLOR_TAN				= "\034B";
 	const TEXTCOLOR_GRAY			= "\034C";
@@ -696,6 +732,10 @@ struct CVar native
 	native int GetInt();
 	native double GetFloat();
 	native String GetString();
+	bool GetDefaultBool() { return GetDefaultInt(); }
+	native int GetDefaultInt();
+	native double GetDefaultFloat();
+	native String GetDefaultString();
 	void SetBool(bool b) { SetInt(b); }
 	native void SetInt(int v);
 	native void SetFloat(double v);
@@ -765,12 +805,22 @@ class Object native
 	private native static Function<void> BuiltinFunctionPtrCast(Function<void> inptr, voidptr newtype);
 	private native static void HandleDeprecatedFlags(Object obj, bool set, int index);
 	private native static bool CheckDeprecatedFlags(Object obj, int index);
-	
+
+	native static Name ValidateNameIndex(int index);
+	static class<Object> FindClass(Name cls, class<Object> baseType = null) { return BuiltinNameToClass(cls, baseType); }
+
 	native static uint MSTime();
 	native static double MSTimeF();
+	native ui static double GetDeltaTime(bool current = false);
+	native clearscope static double GetPhysicsTimeStep();
 	native vararg static void ThrowAbortException(String fmt, ...);
 
 	native static Function<void> FindFunction(Class<Object> cls, Name fn);
+
+	native clearscope static Object GetNetworkEntity(uint id);
+	native play void EnableNetworking(bool enable);
+	native clearscope uint GetNetworkID() const;
+	native clearscope bool IsClientSide() const;
 
 	native virtualscope void Destroy();
 
@@ -886,6 +936,9 @@ struct Wads	// todo: make FileSystem an alias to 'Wads'
 	native static string GetLumpName(int lump);
 	native static string GetLumpFullName(int lump);
 	native static int GetLumpNamespace(int lump);
+	native static int GetLumpContainer(int lump);
+	native static string GetContainerName(int lump);
+	native static string GetLumpFullPath(int lump);
 }
 
 enum EmptyTokenType
@@ -896,7 +949,7 @@ enum EmptyTokenType
 
 // Although String is a builtin type, this is a convenient way to attach methods to it.
 // All of these methods are available on strings
-struct StringStruct native
+struct StringStruct native unsafe(internal)
 {
 	native static vararg String Format(String fmt, ...);
 	native vararg void AppendFormat(String fmt, ...);
@@ -922,8 +975,12 @@ struct StringStruct native
 	native String MakeLower() const;
 	native static int CharUpper(int ch);
 	native static int CharLower(int ch);
+
+	native bool IsInt() const;
+	native bool IsDouble() const;
 	native int ToInt(int base = 0) const;
 	native double ToDouble() const;
+
 	native void Split(out Array<String> tokens, String delimiter, EmptyTokenType keepEmpty = TOK_KEEPEMPTY) const;
 	native void AppendCharacter(int c);
 	native void DeleteLastCharacter();
@@ -933,34 +990,40 @@ struct StringStruct native
 	native void StripLeft(String junk = "");
 	native void StripRight(String junk = "");
 	native void StripLeftRight(String junk = "");
+
+	native int Compare(String other) const; // strcmp
+	native int CompareNoCase(String other) const; // stricmp
+
+	native bool IsEmpty() const; // strcmp
+	native bool IsNotEmpty() const; // stricmp
 }
 
 struct Translation version("2.4")
 {
 	Color colors[256];
-	
+
 	native TranslationID AddTranslation();
 	native static TranslationID MakeID(int group, int num);
 	native static TranslationID GetID(Name transname);
 }
 
 // Convenient way to attach functions to Quat
-struct QuatStruct native
+struct QuatStruct native unsafe(internal)
 {
 	native static Quat SLerp(Quat from, Quat to, double t);
 	native static Quat NLerp(Quat from, Quat to, double t);
 	native static Quat FromAngles(double yaw, double pitch, double roll);
 	native static Quat AxisAngle(Vector3 xyz, double angle);
-	native Quat Conjugate();
-	native Quat Inverse();
 	// native double Length();
 	// native double LengthSquared();
 	// native Quat Unit();
+	// native Quat Conjugate();
+	// native Quat Inverse();
 }
 
 struct ScriptSavedPos
 {
-	voidptr SavedScriptPtr;
+	readonly voidptr SavedScriptPtr;
 	int SavedScriptLine;
 }
 
@@ -1008,7 +1071,7 @@ class ScriptScanner native
 	native void MustGetString();
 	native void MustGetStringName(String name);
 	native void MustGetBoolToken();
-	
+
 	// This DOES NOT advance the parser! This returns the string the parser got.
 	native String GetStringContents();
 

@@ -13,9 +13,9 @@ class FSkyBox;
 
 struct HWSkyInfo
 {
-	float x_offset[2];
+	float x_offset[3];
 	float y_offset;		// doubleskies don't have a y-offset
-	FGameTexture * texture[2];
+	FGameTexture * texture[3];
 	FTextureID skytexno1;
 	bool mirrored;
 	bool doublesky;
@@ -59,18 +59,18 @@ class HWPortal
 	TArray<unsigned int> mPrimIndices;
 	unsigned int mTopCap = ~0u, mBottomCap = ~0u;
 
-	void DrawPortalStencil(FRenderState &state, int pass);
-
 public:
 	FPortalSceneState * mState;
 	TArray<HWWall> lines;
 	BoundingRect boundingBox;
 	int planesused = 0;
+	HWFlat flat;
 
     HWPortal(FPortalSceneState *s, bool local = false) : mState(s), boundingBox(false)
     {
     }
     virtual ~HWPortal() {}
+	virtual int GetMirrorSide() const { return 0; };
     virtual int ClipSeg(seg_t *seg, const DVector3 &viewpos) { return PClip_Inside; }
     virtual int ClipSubsector(subsector_t *sub) { return PClip_Inside; }
     virtual int ClipPoint(const DVector2 &pos) { return PClip_Inside; }
@@ -83,6 +83,7 @@ public:
 	virtual bool NeedDepthBuffer() { return true; }
 	virtual void DrawContents(HWDrawInfo *di, FRenderState &state) = 0;
 	virtual void RenderAttached(HWDrawInfo *di) {}
+	virtual void DrawPortalStencil(FRenderState &state, int pass);
 	void SetupStencil(HWDrawInfo *di, FRenderState &state, bool usestencil);
 	void RemoveStencil(HWDrawInfo *di, FRenderState &state, bool usestencil);
 
@@ -105,12 +106,15 @@ struct FPortalSceneState
 
 	int PlaneMirrorMode = 0;
 	bool inskybox = 0;
+	bool vpIsAllowedOoB = 0;
 
 	UniqueList<HWSkyInfo> UniqueSkies;
 	UniqueList<HWHorizonInfo> UniqueHorizons;
 	UniqueList<secplane_t> UniquePlaneMirrors;
 
 	int skyboxrecursion = 0;
+
+	VSMatrix tempmatrix;
 
 	void BeginScene()
 	{
@@ -145,7 +149,7 @@ public:
 	virtual bool NeedDepthBuffer() { return true; }
 	virtual void DrawContents(HWDrawInfo *di, FRenderState &state)
 	{
-		if (Setup(di, state, di->mClipper))
+		if (Setup(di, state, (di->Viewpoint.bDoOob ? di->rClipper : di->mClipper)))
 		{
 			di->DrawScene(DM_PORTAL);
 			Shutdown(di, state);
@@ -267,6 +271,7 @@ struct HWSectorStackPortal : public HWScenePortalBase
 	TArray<subsector_t *> subsectors;
 protected:
 	bool Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *clipper) override;
+	void DrawPortalStencil(FRenderState &state, int pass) override;
 	void Shutdown(HWDrawInfo *di, FRenderState &rstate) override;
 	virtual void * GetSource() const { return origin; }
 	virtual bool IsSky() { return true; }	// although this isn't a real sky it can be handled as one.
@@ -293,11 +298,14 @@ struct HWPlaneMirrorPortal : public HWScenePortalBase
 protected:
 	bool Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *clipper) override;
 	void Shutdown(HWDrawInfo *di, FRenderState &rstate) override;
+	void DrawPortalStencil(FRenderState &state, int pass) override;
 	virtual void * GetSource() const { return origin; }
 	virtual const char *GetName();
 	secplane_t * origin;
 
 public:
+
+	int GetMirrorSide() const override;
 
 	HWPlaneMirrorPortal(FPortalSceneState *state, secplane_t * pt) : HWScenePortalBase(state)
 	{
@@ -345,7 +353,6 @@ public:
 	}
 
 };
-
 
 struct HWSkyPortal : public HWPortal
 {

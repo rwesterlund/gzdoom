@@ -301,6 +301,18 @@ void P_ThinkParticles (FLevelLocals *Level)
 		}
 		
 		particle->alpha -= particle->fadestep;
+		if (	(!!(particle->flags & SPF_FADE_IN_OUT) && particle->alpha >= 1.0)
+			 || (!!(particle->flags & SPF_FADE_IN_HOLD_OUT) && (particle->ttl * fabs(particle->fadeoutstep)) <= std::min(1.0f, fabs(particle->alpha)))
+		) { // [Jay] if SPF_FADE_IN_HOLD_OUT, hold until the fade out would line up with ttl
+			particle->alpha = std::min(1.0f, fabs(particle->alpha));
+			particle->fadestep = particle->fadeoutstep;
+			particle->flags &= ~(SPF_FADE_IN_OUT|SPF_FADE_IN_HOLD_OUT);
+		}
+
+		// It looks really glitchy if the alpha is allowed to overshoot
+		if (particle->alpha > 1.0)
+			particle->alpha = 1.0;
+
 		particle->size += particle->sizestep;
 		if (particle->alpha <= 0 || --particle->ttl <= 0 || (particle->size <= 0))
 		{ // The particle has expired, so free it
@@ -345,7 +357,7 @@ void P_ThinkParticles (FLevelLocals *Level)
 }
 
 void P_SpawnParticle(FLevelLocals *Level, const DVector3 &pos, const DVector3 &vel, const DVector3 &accel, PalEntry color, double startalpha, int lifetime, double size,
-	double fadestep, double sizestep, int flags, FTextureID texture, ERenderStyle style, double startroll, double rollvel, double rollacc)
+	double fadestep, double sizestep, int flags, FTextureID texture, ERenderStyle style, double startroll, double rollvel, double rollacc, double fadeoutstep)
 {
 	particle_t *particle = NewParticle(Level, !!(flags & SPF_REPLACE));
 
@@ -356,8 +368,21 @@ void P_SpawnParticle(FLevelLocals *Level, const DVector3 &pos, const DVector3 &v
 		particle->Acc = FVector3(accel);
 		particle->color = ParticleColor(color);
 		particle->alpha = float(startalpha);
-		if ((fadestep < 0 && !(flags & SPF_NEGATIVE_FADESTEP)) || fadestep <= -1.0) particle->fadestep = FADEFROMTTL(lifetime);
-		else particle->fadestep = float(fadestep);
+		if ((flags & SPF_FADE_IN_OUT) || (flags & SPF_FADE_IN_HOLD_OUT))
+			particle->fadeoutstep = fadeoutstep;
+		if ((fadestep < 0 && !(flags & SPF_NEGATIVE_FADESTEP)) || fadestep <= -1.0)
+		{
+			particle->fadestep = FADEFROMTTL(lifetime);
+			if (flags & SPF_FADE_IN_OUT)
+				particle->fadestep *= (float)-2;
+			else if (flags & SPF_FADE_IN_HOLD_OUT)
+				particle->fadestep *= (float)-3;
+			particle->fadeoutstep = -particle->fadestep;
+		}
+		else
+		{
+			particle->fadestep = float(fadestep);
+		}
 		particle->ttl = lifetime;
 		particle->size = size;
 		particle->sizestep = sizestep;
@@ -1023,7 +1048,7 @@ void DVisualThinker::OnDestroy()
 		_next->_prev = _prev;
 	if (Level->VisualThinkerHead == this)
 		Level->VisualThinkerHead = _next;
-
+	_next = _prev = nullptr;
 	PT.alpha = 0.0; // stops all rendering.
 	Super::OnDestroy();
 }
@@ -1033,7 +1058,7 @@ DVisualThinker* DVisualThinker::GetNext() const
 	return _next;
 }
 
-DVisualThinker* DVisualThinker::NewVisualThinker(FLevelLocals* Level, PClass* type)
+DVisualThinker* DVisualThinker::NewVisualThinker(FLevelLocals* Level, PClass* type, bool clientSide)
 {
 	if (type == nullptr)
 	{
@@ -1050,7 +1075,7 @@ DVisualThinker* DVisualThinker::NewVisualThinker(FLevelLocals* Level, PClass* ty
 		return nullptr;
 	}
 
-	auto zs = static_cast<DVisualThinker*>(Level->CreateThinker(type, DVisualThinker::DEFAULT_STAT));
+	auto zs = static_cast<DVisualThinker*>(clientSide ? Level->CreateClientSideThinker(type, DVisualThinker::DEFAULT_STAT) : Level->CreateThinker(type, DVisualThinker::DEFAULT_STAT));
 	zs->Construct();
 
 	IFOVERRIDENVIRTUALPTRNAME(zs, NAME_VisualThinker, BeginPlay)
@@ -1065,9 +1090,9 @@ DVisualThinker* DVisualThinker::NewVisualThinker(FLevelLocals* Level, PClass* ty
 	return zs;
 }
 
-static DVisualThinker* SpawnVisualThinker(FLevelLocals* Level, PClass* type)
+static DVisualThinker* SpawnVisualThinker(FLevelLocals* Level, PClass* type, bool clientSide)
 {
-	return DVisualThinker::NewVisualThinker(Level, type);
+	return DVisualThinker::NewVisualThinker(Level, type, clientSide);
 }
 
 void DVisualThinker::UpdateSector(subsector_t * newSubsector)
@@ -1101,14 +1126,16 @@ DEFINE_ACTION_FUNCTION_NATIVE(FLevelLocals, SpawnVisualThinker, SpawnVisualThink
 {
 	PARAM_SELF_STRUCT_PROLOGUE(FLevelLocals);
 	PARAM_CLASS_NOT_NULL(type, DVisualThinker);
-	DVisualThinker* zs = SpawnVisualThinker(self, type);
+	PARAM_BOOL(clientSide);
+	DVisualThinker* zs = SpawnVisualThinker(self, type, clientSide);
 	ACTION_RETURN_OBJECT(zs);
 }
 
 void DVisualThinker::UpdateSpriteInfo()
 {
 	PT.style = ERenderStyle(GetRenderStyle());
-	if((PT.flags & SPF_LOCAL_ANIM) && PT.texture != AnimatedTexture)
+
+	if ((PT.flags & SPF_LOCAL_ANIM) && PT.texture != AnimatedTexture)
 	{
 		AnimatedTexture = PT.texture;
 		TexAnim.InitStandaloneAnimation(PT.animData, PT.texture, Level->maptime);
@@ -1127,6 +1154,10 @@ DEFINE_ACTION_FUNCTION_NATIVE(DVisualThinker, UpdateSpriteInfo, UpdateSpriteInfo
 	return 0;
 }
 
+bool DVisualThinker::ValidTexture()
+{
+	return ((flags & VTF_IsParticle) || PT.texture.isValid());
+}
 
 // This runs just like Actor's, make sure to call Super.Tick() in ZScript.
 void DVisualThinker::Tick()
@@ -1134,10 +1165,8 @@ void DVisualThinker::Tick()
 	if (ObjectFlags & OF_EuthanizeMe)
 		return;
 
-	// There won't be a standard particle for this, it's only for graphics.
-	if (!PT.texture.isValid())
+	if (!ValidTexture())
 	{
-		Printf("No valid texture, destroyed");
 		Destroy();
 		return;
 	}
@@ -1156,7 +1185,6 @@ void DVisualThinker::Tick()
 	PT.Pos.X = newxy.X;
 	PT.Pos.Y = newxy.Y;
 	PT.Pos.Z += PT.Vel.Z;
-
 	subsector_t * ss = Level->PointInRenderSubsector(PT.Pos);
 
 	// Handle crossing a sector portal.
@@ -1246,7 +1274,33 @@ DEFINE_ACTION_FUNCTION_NATIVE(DVisualThinker, SetTranslation, SetTranslation)
 	return 0;
 }
 
-static int IsFrozen(DVisualThinker * self)
+int DVisualThinker::GetParticleType() const
+{
+	int flag = (flags & VTF_IsParticle);
+	switch (flag)
+	{
+	case VTF_ParticleSquare:
+		return PT_SQUARE;
+	case VTF_ParticleRound:
+		return PT_ROUND;
+	case VTF_ParticleSmooth:
+		return PT_SMOOTH;
+	}
+	return PT_DEFAULT;
+}
+
+static int GetParticleType(DVisualThinker* self)
+{
+	return self->GetParticleType();
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(DVisualThinker, GetParticleType, GetParticleType)
+{
+	PARAM_SELF_PROLOGUE(DVisualThinker);
+	ACTION_RETURN_INT(self->GetParticleType());
+}
+
+static int IsFrozen(DVisualThinker* self)
 {
 	return !!(self->Level->isFrozen() && !(self->PT.flags & SPF_NOTIMEFREEZE));
 }
@@ -1336,13 +1390,18 @@ void DVisualThinker::Serialize(FSerializer& arc)
 		("lightlevel", LightLevel)
 		("animData", PT.animData)
 		("flags", PT.flags)
-		("visualThinkerFlags", flags)
-		("next", _next)
-		("prev", _prev);
+		("visualThinkerFlags", flags);
     
     if(arc.isReading())
     {
         UpdateSector();
+		_prev = _next = nullptr;
+		if (Level->VisualThinkerHead != nullptr)
+		{
+			Level->VisualThinkerHead->_prev = this;
+			_next = Level->VisualThinkerHead;
+		}
+		Level->VisualThinkerHead = this;
     }
 }
 

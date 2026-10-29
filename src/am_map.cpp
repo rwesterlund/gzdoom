@@ -170,6 +170,7 @@ CVAR(Bool, am_showmonsters, true, CVAR_ARCHIVE);
 CVAR(Bool, am_showitems, false, CVAR_ARCHIVE);
 CVAR(Bool, am_showtime, true, CVAR_ARCHIVE);
 CVAR(Bool, am_showtotaltime, false, CVAR_ARCHIVE);
+CVAR(Bool, am_showlevelname, true, CVAR_ARCHIVE);
 CVAR(Int, am_colorset, 0, CVAR_ARCHIVE);
 CVAR(Bool, am_customcolors, true, CVAR_ARCHIVE);
 CVAR(Int, am_map_secrets, 1, CVAR_ARCHIVE);
@@ -261,7 +262,7 @@ CCMD(togglemap)
 {
 	if (gameaction == ga_nothing)
 	{
-		gameaction = ga_togglemap;
+		AM_ToggleMap();
 	}
 }
 
@@ -1312,7 +1313,7 @@ void DAutomap::changeWindowLoc ()
 
 void DAutomap::startDisplay()
 {
-	int pnum;
+	unsigned int pnum;
 
 	f_oldloc.x = FLT_MAX;
 	amclock = 0;
@@ -2808,7 +2809,7 @@ void DAutomap::drawPlayers ()
 
 	mpoint_t pt;
 	DAngle angle;
-	int i;
+	unsigned int i;
 
 	if (!multiplayer)
 	{

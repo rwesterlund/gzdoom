@@ -22,8 +22,9 @@ class ID24CalamityBlade : DoomWeapon // Heatwave Generator
 	{
 		Weapon.SelectionOrder 1000;
 		Weapon.AmmoUse 10;
-		Weapon.AmmoGive 40;
+		Weapon.AmmoGive 20;
 		Weapon.AmmoType "ID24Fuel";
+		+Weapon.NoAutoAim;
 		Inventory.PickupMessage "$ID24_GOTCALAMITYBLADE";
 		Tag "$TAG_ID24CALAMITYBLADE";
 	}
@@ -191,12 +192,11 @@ class ID24IncineratorProjectile : Actor // Heatwave Ripper
 		Radius 16;
 		Height 8;
 
-		+NOBLOCKMAP;
-		+NOGRAVITY;
-		+DROPOFF;
-		+MISSILE;
+		Projectile;
 		+ZDOOMTRANS;
 		+RIPPER;
+		RenderStyle "Add";
+		Decal "BladeScorch";
 
 		DeathSound "weapons/calamityblade/explode";
 	}

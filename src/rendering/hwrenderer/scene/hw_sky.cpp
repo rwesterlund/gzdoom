@@ -118,6 +118,9 @@ void HWSkyInfo::init(HWDrawInfo *di, sector_t* sec, int skypos, int sky1, PalEnt
 	}
 	else fadecolor = 0;
 
+	texture[2] = TexMan.GetGameTexture(di->Level->skymisttexture, true);
+	x_offset[2] = di->Level->hw_skymistpos;
+
 }
 
 
@@ -130,7 +133,6 @@ void HWSkyInfo::init(HWDrawInfo *di, sector_t* sec, int skypos, int sky1, PalEnt
 void HWWall::SkyPlane(HWWallDispatcher *di, sector_t *sector, int plane, bool allowreflect)
 {
 	int ptype = -1;
-	if (di->di && di->di->Viewpoint.IsAllowedOoB()) return; // Couldn't prevent sky portal occlusion. Skybox is bad in ortho too.
 
 	FSectorPortal *sportal = sector->ValidatePortal(plane);
 	if (sportal != nullptr && sportal->mFlags & PORTSF_INSKYBOX) sportal = nullptr;	// no recursions, delete it here to simplify the following code
@@ -155,11 +157,17 @@ void HWWall::SkyPlane(HWWallDispatcher *di, sector_t *sector, int plane, bool al
 		case PORTS_PORTAL:
 		case PORTS_LINKEDPORTAL:
 		{
+			if (di->di && di->di->Viewpoint.bDoOob)
+			{
+				secplane_t myplane = plane ? sector->ceilingplane : sector->floorplane;
+				if (di->di->Viewpoint.bDoOrtho && di->di->Viewpoint.ViewVector3D.dot(myplane.Normal()) > 0.0) return;
+				else if (plane==1 && di->di->Viewpoint.Pos.Z >= myplane.ZatPoint(di->di->Viewpoint.Pos)) return;
+				else if (plane==0 && di->di->Viewpoint.Pos.Z <= myplane.ZatPoint(di->di->Viewpoint.Pos)) return;
+			}
 			auto glport = sector->GetPortalGroup(plane);
 			if (glport != NULL)
 			{
 				if (sector->PortalBlocksView(plane)) return;
-
 				if (di->di && screen->instack[1 - plane]) return;
 				ptype = PORTALTYPE_SECTORSTACK;
 				portal = glport;
@@ -310,12 +318,16 @@ void HWWall::SkyTop(HWWallDispatcher *di, seg_t * seg,sector_t * fs,sector_t * b
 		float frontreflect = fs->GetReflect(sector_t::ceiling);
 		if (frontreflect > 0)
 		{
-			float backreflect = bs->GetReflect(sector_t::ceiling);
-			if (backreflect > 0 && bs->ceilingplane.fD() == fs->ceilingplane.fD() && !bs->isClosed())
-			{
-				// Don't add intra-portal line to the portal.
-				return;
-			}
+			// [DVR] Changed the stencil for planemirrors, so now I need intra-portal lines
+			// float backreflect = bs->GetReflect(sector_t::ceiling);
+			// if (backreflect > 0 && bs->ceilingplane.fD() == fs->ceilingplane.fD() && !bs->isClosed())
+			// {
+			// 	Don't add intra-portal line to the portal.
+			// 	if (!(di->di && di->di->Viewpoint.bDoOob))
+			// 	{
+			// 		return;
+			// 	}
+			// }
 		}
 		else
 		{
@@ -389,12 +401,16 @@ void HWWall::SkyBottom(HWWallDispatcher *di, seg_t * seg,sector_t * fs,sector_t 
 		float frontreflect = fs->GetReflect(sector_t::floor);
 		if (frontreflect > 0)
 		{
-			float backreflect = bs->GetReflect(sector_t::floor);
-			if (backreflect > 0 && bs->floorplane.fD() == fs->floorplane.fD() && !bs->isClosed())
-			{
-				// Don't add intra-portal line to the portal.
-				return;
-			}
+			// [DVR] Changed the stencil for planemirrors, so now I need intra-portal lines
+			// float backreflect = bs->GetReflect(sector_t::floor);
+			// if (backreflect > 0 && bs->floorplane.fD() == fs->floorplane.fD() && !bs->isClosed())
+			// {
+			// 	// Don't add intra-portal line to the portal.
+			// 	if (!(di->di && di->di->Viewpoint.bDoOob))
+			// 	{
+			// 		return;
+			// 	}
+			// }
 		}
 		else
 		{

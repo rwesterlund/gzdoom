@@ -38,35 +38,31 @@
 ** executable, so it saves space on disk as well as in memory.
 */
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stddef.h>
 
-#include "doomtype.h"
-
-#include "doomstat.h"
-#include "info.h"
-#include "d_dehacked.h"
-#include "g_level.h"
-#include "cmdlib.h"
-#include "gstrings.h"
-#include "filesystem.h"
-#include "d_player.h"
-#include "r_state.h"
-#include "c_dispatch.h"
-#include "decallib.h"
 #include "a_sharedglobal.h"
+#include "actorptrselect.h"
+#include "cmdlib.h"
+#include "codegen.h"
+#include "d_dehacked.h"
+#include "decallib.h"
+#include "doomstat.h"
+#include "doomtype.h"
 #include "engineerrors.h"
+#include "filesystem.h"
+#include "g_levellocals.h"
+#include "gstrings.h"
+#include "info.h"
+#include "m_argv.h"
 #include "p_effect.h"
+#include "r_state.h"
 #include "serializer.h"
 #include "thingdef.h"
-#include "v_text.h"
-#include "vmbuilder.h"
 #include "types.h"
-#include "m_argv.h"
-#include "actorptrselect.h"
-#include "g_levellocals.h"
+#include "vmbuilder.h"
 
 extern TArray<PalEntry> TranslationColors;
 
@@ -139,6 +135,7 @@ static PClassActor* FindInfoName(int index, bool mustexist = false)
 			cls = static_cast<PClassActor*>(RUNTIME_CLASS(AActor)->CreateDerivedClass(name.GetChars(), (unsigned)sizeof(AActor)));
 			NewClassType(cls, -1);	// This needs a VM type to work as intended.
 			cls->InitializeDefaults();
+			PClassActor::AllActorClasses.Push(cls);
 		}
 		if (cls)
 		{
@@ -251,6 +248,8 @@ struct MBFParamState
 	int pointer;
 	int argsused;
 	int64_t* args;
+	FString PatchName;
+	int SourceLineNumber;
 
 	PClassActor* GetTypeArg(int i)
 	{
@@ -427,6 +426,7 @@ DehSpriteMappings[] =
 static char* PatchFile, * PatchPt;
 FString PatchName;
 static int PatchSize;
+static int LineNumber;
 static char *Line1, *Line2;
 static int	 dversion, pversion;
 static bool  including, includenotext;
@@ -728,7 +728,7 @@ static char *igets (void)
 
 	if (*PatchPt == '\n')
 		*PatchPt++ = 0;
-
+	LineNumber++;
 	return line;
 }
 
@@ -1067,7 +1067,7 @@ static void (*MBFCodePointerFactories[])(FunctionCallEmitter&, int, int, MBFPara
 
 // Creates new functions for the given state so as to convert MBF-args (misc1 and misc2) into real args.
 
-static void SetDehParams(FState *state, int codepointer, VMDisassemblyDumper &disasmdump, MBFParamState* pstate)
+static void SetDehParams(FState *state, int codepointer, VMDisassemblyDumper &disasmdump, MBFParamState* pstate, int index)
 {
 	static const uint8_t regts[] = { REGT_POINTER, REGT_POINTER, REGT_POINTER };
 	int value1 = state->GetMisc1();
@@ -1115,13 +1115,30 @@ static void SetDehParams(FState *state, int codepointer, VMDisassemblyDumper &di
 		// Attach it to the state.
 		VMScriptFunction *sfunc = new VMScriptFunction;
 		funcsym->Variants[0].Implementation = sfunc;
+		sfunc->SourceFileName = pstate->PatchName;
 		sfunc->Proto = funcsym->Variants[0].Proto;
 		sfunc->RegTypes = regts;	// These functions are built after running the script compiler so they don't get this info.
+		int codeSize = buildit.GetAddress();
+		FxFunctionCall expr(pstate->PatchName, NAME_None, FArgumentList(), FScriptPosition(pstate->PatchName, pstate->SourceLineNumber));
+		buildit.BeginStatement(&expr);
 		buildit.MakeFunction(sfunc);
+		buildit.EndStatement();
+		sfunc->LineInfo[0].InstructionIndex = 0;
 		sfunc->NumArgs = numargs;
 		sfunc->ImplicitArgs = numargs;
 		state->SetAction(sfunc);
-		sfunc->PrintableName = ClassDataAllocator.Strdup(FStringf("Dehacked.%s.%d.%d", MBFCodePointers[codepointer].name.GetChars(), value1, value2).GetChars());
+		FString sanitizedPatchName = pstate->PatchName.GetChars();
+		sanitizedPatchName.ReplaceChars(':', '_');
+		sanitizedPatchName.ReplaceChars('.', '_');
+		sanitizedPatchName.ReplaceChars('-', '_');
+		sanitizedPatchName.ReplaceChars(' ', '_');
+		sanitizedPatchName.ReplaceChars('\\', '_');
+		sanitizedPatchName.ReplaceChars('/', '_');
+		sanitizedPatchName.ReplaceChars('*', '_');
+		sanitizedPatchName.ReplaceChars('?', '_');
+		sanitizedPatchName.ReplaceChars('"', '_');
+		sfunc->PrintableName = ClassDataAllocator.Strdup(FStringf("Dehacked.%s.%d.%s.%d.%d", sanitizedPatchName.GetChars(), index, MBFCodePointers[codepointer].name.GetChars(), value1, value2).GetChars());
+		sfunc->QualifiedName = sfunc->PrintableName;
 
 		disasmdump.Write(sfunc, sfunc->PrintableName);
 
@@ -1203,6 +1220,8 @@ static int PatchThing (int thingy, int flags)
 	AActor *info;
 	uint8_t dummy[sizeof(AActor)];
 	bool hadHeight = false;
+	bool hadProjHeight = false;
+	bool hadPhysHeight = false;
 	bool hadTranslucency = false;
 	bool hadStyle = false;
 	FStateDefinitions statedef;
@@ -1262,8 +1281,17 @@ static int PatchThing (int thingy, int flags)
 		}
 		else if (linelen == 6 && stricmp (Line1, "Height") == 0)
 		{
-			info->Height = DEHToDouble(val);
-			info->projectilepassheight = 0;	// needs to be disabled
+			// [XA] This is a bit more complex now, since projectilepassheight
+			// and "physical height" now both exist. if either of these are
+			// defined, then override the Height field accordingly.
+			if(!hadPhysHeight)
+			{
+				info->Height = DEHToDouble(val);
+			}
+			if(!hadProjHeight)
+			{
+				info->projectilepassheight = 0;	// needs to be disabled
+			}
 			hadHeight = true;
 		}
 		else if (linelen == 14 && stricmp (Line1, "Missile damage") == 0)
@@ -1457,6 +1485,47 @@ static int PatchThing (int thingy, int flags)
 		{
 			// [crispy] Multiplies the chance of firing a missile (65536 = normal chance)
 			info->missilechancemult = DEHToDouble(val);
+		}
+
+		// [XA] Fields for common GZDoom-specific values that
+		// are desirable to set in a cross-port DEHACKED mod.
+		// adding these prevents users from having to reimplement
+		// actors in zscript just to define these few fields.
+		else if (!stricmp(Line1, "Projectile pass height"))
+		{
+			info->projectilepassheight = DEHToDouble(val);
+			hadProjHeight = true;
+		}
+		else if (!stricmp(Line1, "Physical height"))
+		{
+			// [XA] This is a synonym for Height that is intended
+			// to be ignored in any ports that don't support
+			// projectilepassheight -- this is needed because
+			// other ports' "Height x" is actually equivalent
+			// to Zdoom's "ProjectilePassHeight x; Height y",
+			// i.e. the definition of the Height var is different.
+			info->Height = DEHToDouble(val);
+			hadPhysHeight = true;
+		}
+		else if (!stricmp(Line1, "Tag"))
+		{
+			stripwhite(Line2);
+			info->SetTag(Line2);
+		}
+		else if (!stricmp(Line1, "Obituary"))
+		{
+			stripwhite(Line2);
+			info->StringVar(NAME_Obituary) = Line2;
+		}
+		else if (!stricmp(Line1, "Melee obituary"))
+		{
+			stripwhite(Line2);
+			info->StringVar(NAME_HitObituary) = Line2;
+		}
+		else if (!stricmp(Line1, "Self obituary"))
+		{
+			stripwhite(Line2);
+			info->StringVar(NAME_SelfObituary) = Line2;
 		}
 
 		else if (linelen > 6)
@@ -1727,12 +1796,23 @@ static int PatchThing (int thingy, int flags)
 		else Printf (unknown_str, Line1, "Thing", thingy);
 	}
 
+	// [XA] sanity check: to avoid ambiguity, an actor that defines
+	// ProjectilePassHeight must also define PhysicalHeight, and vice-versa.
+	if(hadPhysHeight && !hadProjHeight)
+	{
+		I_Error("Thing %d: DEHACKED actors that set 'Physical height' must also set 'Projectile pass height'\n", thingy);
+	}
+	else if(!hadPhysHeight && hadProjHeight)
+	{
+		I_Error("Thing %d: DEHACKED actors that set 'Projectile pass height' must also set 'Physical height'\n", thingy);
+	}
+
 	if (info != (AActor *)&dummy)
 	{
 		// Reset heights for things hanging from the ceiling that
 		// don't specify a new height.
 		if (info->flags & MF_SPAWNCEILING &&
-			!hadHeight &&
+			!hadHeight && !hadPhysHeight &&
 			thingy <= (int)OrgHeights.Size() && thingy > 0)
 		{
 			info->Height = OrgHeights[thingy - 1];
@@ -2339,6 +2419,8 @@ static int SetPointer(FState *state, PFunction *sym, int frame = 0)
 			if (sym->SymbolName == MBFCodePointers[i].name)
 			{
 				MBFParamState newstate = { state, int(i) };
+				newstate.PatchName = PatchName;
+				newstate.SourceLineNumber = LineNumber;
 				return MBFParamStates.Push(newstate);
 			}
 		}
@@ -2968,7 +3050,7 @@ static int PatchSoundNames (int dummy, int flags)
 		stripwhite(Line2);
 		FString newname = skipwhite (Line2);
 		ReplaceSoundName((int)strtoll(Line1, nullptr, 10), newname.GetChars());
-		DPrintf (DMSG_SPAMMY, "Sound %d set to:\n%s\n", Line1, newname.GetChars());
+		DPrintf (DMSG_SPAMMY, "Sound %p set to:\n%s\n", Line1, newname.GetChars()); // should %p be %s ?
 	}
 
 	return result;
@@ -3003,7 +3085,7 @@ static int PatchSpriteNames (int dummy, int flags)
 			int v = GetSpriteIndex(newname.GetChars());
 			memcpy(OrgSprNames[line1val].c, sprites[v].name, 5);
 
-			DPrintf (DMSG_SPAMMY, "Sprite %d set to:\n%s\n", Line1, newname.GetChars());
+			DPrintf (DMSG_SPAMMY, "Sprite %p set to:\n%s\n", Line1, newname.GetChars()); // should %p be %s ?
 		}
 		
 		return result;
@@ -3228,6 +3310,7 @@ static bool DoDehPatch(int flags)
 	if (!batchrun) Printf("Adding dehacked patch %s\n", PatchName.GetChars());
 
 	int cont;
+	LineNumber = 0;
 
 	dversion = pversion = -1;
 	cont = 0;
@@ -3336,7 +3419,7 @@ static void UnloadDehSupp ()
 	// Handle MBF params here, before the required arrays are cleared
 	for (unsigned int i=0; i < MBFParamStates.Size(); i++)
 	{
-		SetDehParams(MBFParamStates[i].state, MBFParamStates[i].pointer, disasmdump, &MBFParamStates[i]);
+		SetDehParams(MBFParamStates[i].state, MBFParamStates[i].pointer, disasmdump, &MBFParamStates[i], i);
 	}
 	stateargs.Clear();
 	MBFParamStates.Clear();
@@ -3714,7 +3797,11 @@ void FinishDehPatch ()
 			mysnprintf(typeNameBuilder, countof(typeNameBuilder), "DehackedPickup%d", nameindex++);
 			bool newlycreated;
 			subclass = static_cast<PClassActor *>(dehtype->CreateDerivedClass(typeNameBuilder, dehtype->Size, &newlycreated, 0));
-			if (newlycreated) subclass->InitializeDefaults();
+			if (newlycreated)
+			{
+				subclass->InitializeDefaults();
+				PClassActor::AllActorClasses.Push(subclass);
+			}
 		} 
 		while (subclass == nullptr);
 		NewClassType(subclass, 0);	// This needs a VM type to work as intended.

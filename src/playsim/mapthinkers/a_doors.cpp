@@ -41,6 +41,8 @@
 #include "animations.h"
 #include "texturemanager.h"
 
+EXTERN_CVAR(Bool, net_repeatableactioncooldown)
+
 //============================================================================
 //
 // VERTICAL DOORS
@@ -473,6 +475,10 @@ bool FLevelLocals::EV_DoDoor (DDoor::EVlDoor type, line_t *line, AActor *thing,
 						if (!thing->player || thing->player->Bot != NULL)
 							return false;	// JDC: bad guys never close doors
 											//Added by MC: Neither do bots.
+
+						// Don't let users spam open/close doors when playing online.
+						if (net_repeatableactioncooldown && NetworkClients.Size() > 1)
+							return false;
 
 						door->m_Direction = -1;	// start going down immediately
 

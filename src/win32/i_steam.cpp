@@ -308,7 +308,10 @@ TArray<FString> I_GetSteamPath()
 		"Ultimate Doom/rerelease",                           // 2024 KEX Port
 		"Doom 2/rerelease/DOOM II_Data/StreamingAssets",
 		"Doom 2/finaldoombase",
-        "Master Levels of Doom/doom2"
+        "Master Levels of Doom/doom2",
+		"Heretic + Hexen/dos/base/heretic",                  // vanilla WAD included with the 2025 Kex port
+		"Heretic + Hexen/dos/base/hexen",                    // vanilla WAD included with the 2025 Kex port
+		"Heretic + Hexen/dos/base/hexendk"                   // vanilla WAD included with the 2025 Kex port
 	};
 
 	FString steamPath;
@@ -339,7 +342,7 @@ TArray<FString> I_GetSteamPath()
 			}
 		}
 	}
-	catch (const CRecoverableError& err)
+	catch (const CRecoverableError&)
 	{
 		// don't abort on errors in here. Just return an empty path.
 	}

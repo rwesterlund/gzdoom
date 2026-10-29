@@ -9,6 +9,7 @@ Class SuperMap : MapRevealer
 		+FLOATBOB
 		Inventory.MaxAmount 0;
 		Inventory.PickupMessage "$TXT_ITEMSUPERMAP";
+		Tag "$TAG_ITEMSUPERMAP";
 	}
 	States
 	{
@@ -53,6 +54,7 @@ Class ArtiTomeOfPower : PowerupGiver
 	{
 		+COUNTITEM
 		+FLOATBOB
+		+WEAPONSPAWN
 		Inventory.PickupFlash "PickupFlash";
 		Inventory.Icon "ARTIPWBK";
 		Powerup.Type "PowerWeaponlevel2";
@@ -128,6 +130,7 @@ Class ArtiTimeBomb : Inventory
 	{
 		+COUNTITEM
 		+FLOATBOB
+		+WEAPONSPAWN
 		Inventory.PickupFlash "PickupFlash";
 		+INVENTORY.INVBAR
 		+INVENTORY.FANCYPICKUPSOUND

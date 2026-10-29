@@ -254,7 +254,7 @@ CCMD (chase)
 {
 	if (demoplayback)
 	{
-		int i;
+		unsigned int i;
 
 		if (chasedemo)
 		{
@@ -713,7 +713,7 @@ UNSAFE_CCMD(save)
 		Printf("saving to an absolute path is not allowed\n");
 		return;
 	}
-	if (fname.IndexOf("..") > 0)
+	if (fname.IndexOf("..") >= 0)
 	{
 		Printf("'..' not allowed in file names\n");
 		return;
@@ -940,6 +940,46 @@ CCMD(changesky)
 		}
 	}
 	InitSkyMap (primaryLevel);
+}
+
+//-----------------------------------------------------------------------------
+//
+//
+//
+//-----------------------------------------------------------------------------
+CCMD(skymisttoggle)
+{
+	primaryLevel->flags3 ^= LEVEL3_SKYMIST;
+}
+
+//-----------------------------------------------------------------------------
+//
+//
+//
+//-----------------------------------------------------------------------------
+CCMD(thickfogdistance)
+{
+	if (argv.argc() > 1)
+	{
+		// Do this only on the primary level.
+		primaryLevel->thickfogdistance = (float)strtod(argv[1], NULL);
+	}
+	Printf("%f (positive means enabled)\n", primaryLevel->thickfogdistance);
+}
+
+//-----------------------------------------------------------------------------
+//
+//
+//
+//-----------------------------------------------------------------------------
+CCMD(thickfogmultiplier)
+{
+	if (argv.argc() > 1)
+	{
+		// Do this only on the primary level.
+		primaryLevel->thickfogmultiplier = max(0.f, (float)strtod(argv[1], NULL));
+	}
+	Printf("%f\n", primaryLevel->thickfogmultiplier);
 }
 
 //-----------------------------------------------------------------------------
@@ -1325,6 +1365,7 @@ CCMD (mapinfo)
 	if (myLevel->Music.IsNotEmpty())
 		Printf("               Music: %s%s\n", myLevel->Music[0] == '$'? "D_" : "", testlocalised(myLevel->Music.GetChars()));
 
+	if (myLevel->pixelstretch != 0.0) // yes, we're making a dummy if statement to fix the misleading indentation warnings
 		Printf("        PixelStretch: %f\n", myLevel->pixelstretch);
 
 	if (myLevel->RedirectType != NAME_None)
@@ -1339,6 +1380,7 @@ CCMD (mapinfo)
 	if (myLevel->RedirectCVARMapName.IsNotEmpty())
 		Printf(" CVAR_Redirect (Map): %s\n", myLevel->RedirectCVARMapName.GetChars());
 
+	if ((int8_t)myLevel->lightmode != -128) // yes, we're making a dummy if statement to fix the misleading indentation warnings
 		Printf("           LightMode: %i\n", (int8_t)myLevel->lightmode);
 
 	if (players[consoleplayer].mo && players[consoleplayer].mo->Level)

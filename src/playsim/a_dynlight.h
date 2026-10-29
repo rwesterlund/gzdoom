@@ -77,6 +77,7 @@ public:
 	void SetDontLightOthers(bool on) { if (on) m_lightFlags |= LF_DONTLIGHTOTHERS; else m_lightFlags &= ~LF_DONTLIGHTOTHERS; }
 	void SetDontLightMap(bool on) { if (on) m_lightFlags |= LF_DONTLIGHTMAP; else m_lightFlags &= ~LF_DONTLIGHTMAP; }
 	void SetNoShadowmap(bool on) { if (on) m_lightFlags |= LF_NOSHADOWMAP; else m_lightFlags &= ~LF_NOSHADOWMAP; }
+	void SetLightDefIntensity(double i) { m_LightDefIntensity = i; }
 	void SetSpot(bool spot) { if (spot) m_lightFlags |= LF_SPOT; else m_lightFlags &= ~LF_SPOT; }
 	void SetSpotInnerAngle(double angle) { m_spotInnerAngle = DAngle::fromDeg(angle); }
 	void SetSpotOuterAngle(double angle) { m_spotOuterAngle = DAngle::fromDeg(angle); }
@@ -128,6 +129,7 @@ protected:
 	DAngle m_spotInnerAngle = DAngle::fromDeg(10.0);
 	DAngle m_spotOuterAngle = DAngle::fromDeg(25.0);
 	DAngle m_pitch = nullAngle;
+	double m_LightDefIntensity = 1.0; // Light over/underbright multiplication for GLDEFS-defined lights
 	
 	friend FSerializer &Serialize(FSerializer &arc, const char *key, FLightDefaults &value, FLightDefaults *def);
 };
@@ -182,17 +184,13 @@ protected:
 
 struct FLightNode
 {
-	FLightNode ** prevTarget;
-	FLightNode * nextTarget;
-	FLightNode ** prevLight;
-	FLightNode * nextLight;
 	FDynamicLight * lightsource;
-	union
-	{
-		side_t * targLine;
-		subsector_t * targSubsector;
-		void * targ;
-	};
+};
+
+struct FDynamicLightTouchLists
+{
+	TArray<FSection*> flat_tlist;
+	TArray<side_t*> wall_tlist;
 };
 
 struct FDynamicLight
@@ -225,6 +223,7 @@ struct FDynamicLight
 	int GetBlue() const { return pArgs[LIGHT_BLUE]; }
 	int GetIntensity() const { return pArgs[LIGHT_INTENSITY]; }
 	int GetSecondaryIntensity() const { return pArgs[LIGHT_SECONDARY_INTENSITY]; }
+	double GetLightDefIntensity() const { return lightDefIntensity; }
 
 	bool IsSubtractive() const { return !!((*pLightFlags) & LF_SUBTRACTIVE); }
 	bool IsAdditive() const { return !!((*pLightFlags) & LF_ADDITIVE); }
@@ -245,6 +244,7 @@ struct FDynamicLight
 
 	void Tick();
 	void UpdateLocation();
+	void AddLightNode(FSection *section, side_t *sidedef);
 	void LinkLight();
 	void UnlinkLight();
 	void ReleaseLight();
@@ -271,8 +271,7 @@ public:
 	sector_t *Sector;
 	FLevelLocals *Level;
 	TObjPtr<AActor *> target;
-	FLightNode * touching_sides;
-	FLightNode * touching_sector;
+
 	float radius;			// The maximum size the light can be with its current settings.
 	float m_currentRadius;	// The current light size.
 	int m_tickCount;
@@ -286,6 +285,9 @@ public:
 	bool swapped;
 	bool explicitpitch;
 
+	double lightDefIntensity;
+
+	FDynamicLightTouchLists touchlists;
 };
 
 

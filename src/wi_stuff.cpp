@@ -302,7 +302,8 @@ private:
 					auto* li = FindLevelInfo(state != StatCount ? wbs->next.GetChars() : wbs->current.GetChars());
 					if (!li)
 						return false;
-					if (li->broken_id24_levelnum != condition.param)
+					int levelnum = li->id24_levelnum ? li->id24_levelnum : li->levelnum;
+					if (levelnum != condition.param)
 						return false;
 					break;
 				}
@@ -311,7 +312,8 @@ private:
 					auto* li = FindLevelInfo(state != StatCount ? wbs->next.GetChars() : wbs->current.GetChars());
 					if (!li)
 						return false;
-					if (li->broken_id24_levelnum <= condition.param)
+					int levelnum = li->id24_levelnum ? li->id24_levelnum : li->levelnum;
+					if (levelnum != condition.param)
 						return false;
 					break;
 				}
@@ -1211,69 +1213,6 @@ DObject* WI_Start(wbstartstruct_t *wbstartstruct)
 	}
 
 	return WI_Screen;
-}
-
-//====================================================================
-// 
-//
-//
-//====================================================================
-
-DEFINE_ACTION_FUNCTION(DStatusScreen, GetPlayerWidths)
-{
-	PARAM_PROLOGUE;
-	int maxnamewidth, maxscorewidth, maxiconheight;
-	HU_GetPlayerWidths(maxnamewidth, maxscorewidth, maxiconheight);
-	if (numret > 0) ret[0].SetInt(maxnamewidth);
-	if (numret > 1) ret[1].SetInt(maxscorewidth);
-	if (numret > 2) ret[2].SetInt(maxiconheight);
-	return min(numret, 3);
-}
-
-//====================================================================
-// 
-//
-//
-//====================================================================
-
-DEFINE_ACTION_FUNCTION(DStatusScreen, GetRowColor)
-{
-	PARAM_PROLOGUE;
-	PARAM_POINTER(p, player_t);
-	PARAM_BOOL(highlight);
-	ACTION_RETURN_INT(HU_GetRowColor(p, highlight));
-}
-
-//====================================================================
-// 
-//
-//
-//====================================================================
-
-DEFINE_ACTION_FUNCTION(DStatusScreen, GetSortedPlayers)
-{
-	PARAM_PROLOGUE;
-	PARAM_POINTER(array, TArray<int>);
-	PARAM_BOOL(teamplay);
-
-	player_t *sortedplayers[MAXPLAYERS];
-	// Sort all players
-	for (int i = 0; i < MAXPLAYERS; i++)
-	{
-		sortedplayers[i] = &players[i];
-	}
-
-	if (teamplay)
-		qsort(sortedplayers, MAXPLAYERS, sizeof(player_t *), compareteams);
-	else
-		qsort(sortedplayers, MAXPLAYERS, sizeof(player_t *), comparepoints);
-
-	array->Resize(MAXPLAYERS);
-	for (unsigned i = 0; i < MAXPLAYERS; i++)
-	{
-		(*array)[i] = int(sortedplayers[i] - players);
-	}
-	return 0;
 }
 
 //====================================================================

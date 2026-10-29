@@ -48,6 +48,7 @@ class Ammo : Inventory
 	Default
 	{
 		+INVENTORY.KEEPDEPLETED
+		+WEAPONSPAWN
 		Inventory.PickupSound "misc/ammo_pkup";
 		
 		Ammo.DropAmmoFactorMultiplier 1;
@@ -138,6 +139,9 @@ class Ammo : Inventory
 
 	override Inventory CreateCopy (Actor other)
 	{
+		if (IsCreatingLocalCopy())
+			return Super.CreateCopy(other);
+
 		Inventory copy;
 		int amount = Amount;
 
@@ -238,6 +242,11 @@ class Ammo : Inventory
 class BackpackItem : Inventory
 {
 	bool bDepleted;
+
+	Default
+	{
+		+WEAPONSPAWN
+	}
 	
 	//===========================================================================
 	//
@@ -250,6 +259,9 @@ class BackpackItem : Inventory
 
 	override Inventory CreateCopy (Actor other)
 	{
+		if (IsCreatingLocalCopy())
+			return Super.CreateCopy(other);
+			
 		// Find every unique type of ammoitem. Give it to the player if
 		// he doesn't have it already, and double its maximum capacity.
 		uint end = AllActorClasses.Size();
