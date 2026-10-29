@@ -169,6 +169,7 @@ EXTERN_CVAR(Float, hud_scalefactor)
 void DBaseStatusBar::DrawAltHUD()
 {
 	player_t * CPlayer = StatusBar->CPlayer;
+	FHUDLetterbox letterbox;
 
 	players[consoleplayer].inventorytics = 0;
 	int hudwidth;

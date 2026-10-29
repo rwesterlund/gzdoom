@@ -455,6 +455,40 @@ private:
 
 extern DBaseStatusBar *StatusBar;
 
+// Narrows the 2D drawer to a centered 16:9 area for the lifetime of the
+// object if hud_letterbox is on and the screen is wider than that.
+class FHUDLetterbox
+{
+public:
+	FHUDLetterbox();
+	~FHUDLetterbox();
+
+	// Temporarily restores the full screen while an active letterbox is in
+	// effect, for things that must cover the whole screen.
+	class Lift
+	{
+	public:
+		Lift();
+		~Lift();
+
+		int BoxLeft = 0;	// left edge of the letterboxed area in screen coordinates
+
+	private:
+		FHUDLetterbox *Lifted;
+	};
+
+private:
+	void Apply();
+	void Undo();
+
+	static FHUDLetterbox *Active;
+	FHUDLetterbox *Previous = nullptr;
+	int SavedWidth = -1;
+	int BoxWidth = 0;
+	int BoxLeft = 0;
+	DVector2 SavedOffset;
+};
+
 // Status bar factories -----------------------------------------------------
 
 DBaseStatusBar *CreateCustomStatusBar(int script=0);

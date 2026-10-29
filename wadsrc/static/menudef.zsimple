@@ -87,6 +87,7 @@ OptionMenu ScalingOptionsSimple protected
 	StaticText "$OPTMNU_HUD"
 	ScaleSlider "$HUDMNU_UISCALE",				"uiscale", 0.0, 8.0, 1.0, "$SCALEMNU_ADAPT"
 	Option "$SCALEMNU_HUDASPECT", 				"hud_aspectscale", "OnOff"
+	Option "$SCALEMNU_HUDLETTERBOX",			"hud_letterbox", "OnOff"
 	Slider "$DSPLYMNU_SCREENSIZE",				"screenblocks", 				3.0, 12.0, 1.0, 0
 	StaticText " "
 	StaticText "$VIDMNU_TITLE"

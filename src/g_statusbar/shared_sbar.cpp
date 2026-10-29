@@ -91,6 +91,7 @@ EXTERN_CVAR(Bool, ui_screenborder_classic_scaling)
 CVAR(Int, hud_scale, 0, CVAR_ARCHIVE);
 CVAR(Bool, log_vgafont, false, CVAR_ARCHIVE)
 CVAR(Bool, hud_oldscale, true, CVAR_ARCHIVE)
+CVAR(Bool, hud_letterbox, false, CVAR_ARCHIVE)
 
 DBaseStatusBar *StatusBar;
 
@@ -925,8 +926,12 @@ void DBaseStatusBar::RefreshBackground () const
 {
 	int x, x2, y;
 
+	// The border must fill the whole screen, while ST_X is relative to the letterboxed HUD area.
+	FHUDLetterbox::Lift lift;
+	int stx = ST_X + lift.BoxLeft;
+
 	float ratio = ActiveRatio (twod->GetWidth(), twod->GetHeight());
-	x = ST_X;
+	x = stx;
 	y = SBarTop;
 	
 	if (x == 0 && y == twod->GetHeight()) return;
@@ -952,7 +957,7 @@ void DBaseStatusBar::RefreshBackground () const
 	{
 		if(!CompleteBorder)
 		{
-			x2 = twod->GetWidth() - ST_X;
+			x2 = twod->GetWidth() - stx;
 		}
 		else
 		{
@@ -1100,14 +1105,91 @@ void DBaseStatusBar::Draw (EHudState state, double ticFrac)
 
 void DBaseStatusBar::CallDraw(EHudState state, double ticFrac)
 {
-	IFVIRTUAL(DBaseStatusBar, Draw)
 	{
-		VMValue params[] = { (DObject*)this, state, ticFrac };
-		VMCall(func, params, countof(params), nullptr, 0);
+		// This includes HUD_StatusBar, since mods may use it for HUDs with fullscreen offsets.
+		FHUDLetterbox letterbox;
+		SetScale();	// RefreshBackground may run before the script sets up the status bar, so ST_X must match the letterbox.
+		IFVIRTUAL(DBaseStatusBar, Draw)
+		{
+			VMValue params[] = { (DObject*)this, state, ticFrac };
+			VMCall(func, params, countof(params), nullptr, 0);
+		}
+		else Draw(state, ticFrac);
+		twod->ClearClipRect();	// make sure the scripts don't leave a valid clipping rect behind.
 	}
-	else Draw(state, ticFrac);
-	twod->ClearClipRect();	// make sure the scripts don't leave a valid clipping rect behind.
+	// must be done with the real screen size so the status bar geometry isn't left letterboxed.
 	BeginStatusBar(BaseSBarHorizontalResolution, BaseSBarVerticalResolution, BaseRelTop, false);
+}
+
+//---------------------------------------------------------------------------
+//
+// HUD letterboxing
+//
+// On screens wider than 16:9 the HUD gets drawn into a centered 16:9 area
+// instead of being spread out to the far edges of the screen. This is done
+// by temporarily shrinking the 2D drawer and offsetting everything drawn,
+// so it works for any HUD, whether native, ZScript, SBARINFO or alt HUD.
+//
+//---------------------------------------------------------------------------
+
+FHUDLetterbox *FHUDLetterbox::Active;
+
+FHUDLetterbox::FHUDLetterbox()
+{
+	if (!hud_letterbox)
+		return;
+
+	int width = twod->GetWidth();
+	double ratio = ActiveRatio(width, twod->GetHeight());
+	const double maxratio = 16. / 9.;
+
+	if (ratio <= maxratio)
+		return;
+
+	SavedWidth = width;
+	BoxWidth = int(width * maxratio / ratio + 0.5);
+	BoxLeft = (width - BoxWidth) / 2;
+	Previous = Active;
+	Active = this;
+	Apply();
+}
+
+FHUDLetterbox::~FHUDLetterbox()
+{
+	if (SavedWidth < 0)
+		return;
+
+	Undo();
+	Active = Previous;
+}
+
+void FHUDLetterbox::Apply()
+{
+	SavedOffset = twod->SetOffset(DVector2(0, 0));
+	twod->SetOffset(SavedOffset + DVector2(BoxLeft, 0));
+	twod->SetSize(BoxWidth, twod->GetHeight());
+}
+
+void FHUDLetterbox::Undo()
+{
+	twod->SetSize(SavedWidth, twod->GetHeight());
+	twod->SetOffset(SavedOffset);
+}
+
+FHUDLetterbox::Lift::Lift()
+{
+	Lifted = Active;
+	if (Lifted)
+	{
+		BoxLeft = Lifted->BoxLeft;
+		Lifted->Undo();
+	}
+}
+
+FHUDLetterbox::Lift::~Lift()
+{
+	if (Lifted)
+		Lifted->Apply();
 }
 
 void DBaseStatusBar::DrawLog ()
